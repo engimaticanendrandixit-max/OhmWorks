@@ -6,6 +6,7 @@ from utils import (
     point_in_rect, build_wire_path, compute_junctions
 )
 from ui import draw_mode_buttons, get_clicked_mode, draw_status_bar
+from components import draw_component_rotated
 
 
 #Initializing pygame
@@ -43,6 +44,7 @@ wire_points = []  # v0.3.0: manual bend points for the wire being drawn
 
 dragging = False
 drag_index = None
+active_index = None  # v0.4.0: last-clicked component in Move Mode, used for rotation
 
 # v0.2.0: interaction mode - Move / Connect / Delete
 current_mode = Mode.MOVE
@@ -94,6 +96,7 @@ while running:
                 if idx is not None:
                     dragging = True
                     drag_index = idx
+                    active_index = idx  # stays selected after mouse-up, for rotation (R key)
                     continue
 
             # 4) Delete Mode - remove component + its connections
@@ -120,6 +123,11 @@ while running:
                         wire_start = None
                         wire_terminal = None
                         wire_points = []
+
+                    if active_index == idx:
+                        active_index = None
+                    elif active_index is not None and active_index > idx:
+                        active_index -= 1
                     continue
 
             # 5) Component palette selection / placement (any mode)
@@ -135,7 +143,7 @@ while running:
                 print("Selected:", selected_component)
             elif 260 <= mouse_x <= 1180 and 20 <= mouse_y <= 620:
                 if selected_component is not None:
-                    placed_components.append((selected_component, mouse_x, mouse_y))
+                    placed_components.append((selected_component, mouse_x, mouse_y, 0))
 
         elif event.type == pygame.MOUSEBUTTONUP:
             dragging = False
@@ -144,8 +152,14 @@ while running:
         elif event.type == pygame.MOUSEMOTION:
             if current_mode == Mode.MOVE and dragging and drag_index is not None:
                 mouse_x, mouse_y = event.pos
-                component, _, _ = placed_components[drag_index]
-                placed_components[drag_index] = (component, mouse_x, mouse_y)
+                component, _, _, angle = placed_components[drag_index]
+                placed_components[drag_index] = (component, mouse_x, mouse_y, angle)
+
+        elif event.type == pygame.KEYDOWN:
+            # v0.4.0 - press R in Move Mode to rotate the selected component 90 deg
+            if event.key == pygame.K_r and current_mode == Mode.MOVE and active_index is not None:
+                component, cx, cy, angle = placed_components[active_index]
+                placed_components[active_index] = (component, cx, cy, (angle + 90) % 360)
 
     screen.fill(BACKGROUND)
 
@@ -180,10 +194,10 @@ while running:
     draw_grid(screen, CANVAS_RECT)
 
     for start, start_terminal, end, end_terminal, waypoints in connections:
-        component1, x1, y1 = placed_components[start]
-        component2, x2, y2 = placed_components[end]
-        left1, right1 = get_terminals(component1, x1, y1)
-        left2, right2 = get_terminals(component2, x2, y2)
+        component1, x1, y1, angle1 = placed_components[start]
+        component2, x2, y2, angle2 = placed_components[end]
+        left1, right1 = get_terminals(component1, x1, y1, angle1)
+        left2, right2 = get_terminals(component2, x2, y2, angle2)
         # Start position
         if start_terminal == "left":
             start_pos = left1
@@ -202,8 +216,8 @@ while running:
 
     # Live preview of a wire being drawn in Connect Mode
     if current_mode == Mode.CONNECT and wire_start is not None:
-        comp, cx, cy = placed_components[wire_start]
-        left, right = get_terminals(comp, cx, cy)
+        comp, cx, cy, cangle = placed_components[wire_start]
+        left, right = get_terminals(comp, cx, cy, cangle)
         origin = left if wire_terminal == "left" else right
         preview_path = [origin] + wire_points + [pygame.mouse.get_pos()]
         for p1, p2 in zip(preview_path, preview_path[1:]):
@@ -213,19 +227,13 @@ while running:
 
     junctions = compute_junctions(connections)  # v0.3.0: terminals shared by 2+ wires
 
-    for i, (component, x, y) in enumerate(placed_components):
-        if component == "Resistor":
-            draw_resistor(screen, x, y)
-        elif component == "Battery":
-            draw_battery(screen, x, y)
-        elif component == "Capacitor":
-            draw_capacitor(screen, x, y)
-        elif component == "Inductor":
-            draw_inductor(screen, x, y)
-        else:
+    for i, (component, x, y, angle) in enumerate(placed_components):
+        drawn = draw_component_rotated(screen, component, x, y, angle)
+        if not drawn:
+            # unknown/custom component type - fallback box (no rotation support)
             pygame.draw.rect(screen, (220, 220, 220), (x - 30, y - 10, 60, 20), border_radius=5)
 
-        left_terminal, right_terminal = get_terminals(component, x, y)
+        left_terminal, right_terminal = get_terminals(component, x, y, angle)
         pygame.draw.circle(screen, (255, 0, 0), left_terminal, 6)
         pygame.draw.circle(screen, (0, 255, 0), right_terminal, 6)
 
@@ -234,8 +242,8 @@ while running:
         if (i, "right") in junctions:
             pygame.draw.circle(screen, (255, 255, 255), right_terminal, 4)
 
-        # Highlight the component currently being dragged (Move Mode)
-        if current_mode == Mode.MOVE and i == drag_index:
+        # Highlight the selected component (Move Mode) - press R to rotate it
+        if current_mode == Mode.MOVE and i == active_index:
             pygame.draw.rect(screen, (80, 160, 255), (x - 55, y - 35, 110, 70), 2, border_radius=6)
 
         label = font.render(component[0], True, (0, 0, 0))
