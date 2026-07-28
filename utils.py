@@ -12,11 +12,12 @@ def get_component_at(mouse_pos, placed_components):
     """
     Returns the index of the top-most component under mouse_pos, else None.
     Iterates in reverse so the most recently placed (visually on top)
-    component is hit first.
+    component is hit first. Hit-box stays axis-aligned regardless of
+    rotation - close enough for a symbol-sized bounding box.
     """
     mx, my = mouse_pos
     for i in range(len(placed_components) - 1, -1, -1):
-        component, x, y = placed_components[i]
+        component, x, y, angle = placed_components[i]
         if x - 50 <= mx <= x + 50 and y - 30 <= my <= y + 30:
             return i
     return None
@@ -28,8 +29,8 @@ def get_terminal_at(mouse_pos, placed_components, get_terminals_fn, radius=10):
     terminal, else None.
     """
     mx, my = mouse_pos
-    for i, (component, x, y) in enumerate(placed_components):
-        left, right = get_terminals_fn(component, x, y)
+    for i, (component, x, y, angle) in enumerate(placed_components):
+        left, right = get_terminals_fn(component, x, y, angle)
         if abs(mx - left[0]) < radius and abs(my - left[1]) < radius:
             return (i, "left")
         if abs(mx - right[0]) < radius and abs(my - right[1]) < radius:
