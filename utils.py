@@ -46,3 +46,46 @@ def draw_grid(screen, rect, spacing=20, color=(65, 65, 78)):
         pygame.draw.line(screen, color, (gx, y0), (gx, y0 + h), 1)
     for gy in range(y0, y0 + h, spacing):
         pygame.draw.line(screen, color, (x0, gy), (x0 + w, gy), 1)
+
+
+def point_in_rect(pos, rect):
+    """rect = (x, y, w, h)"""
+    x0, y0, w, h = rect
+    return x0 <= pos[0] <= x0 + w and y0 <= pos[1] <= y0 + h
+
+
+def orthogonal_route(start, end):
+    """
+    v0.3.0 - Auto Manhattan (right-angle) routing between two points,
+    used when a connection has no manually placed waypoints.
+    Routes horizontal-first then vertical.
+    """
+    x1, y1 = start
+    x2, y2 = end
+    if x1 == x2 or y1 == y2:
+        return [start, end]
+    bend = (x2, y1)
+    return [start, bend, end]
+
+
+def build_wire_path(start_pos, end_pos, waypoints):
+    """
+    v0.3.0 - Full path for a connection: manual waypoints if the user
+    placed any while wiring, otherwise an auto orthogonal route.
+    """
+    if waypoints:
+        return [start_pos] + list(waypoints) + [end_pos]
+    return orthogonal_route(start_pos, end_pos)
+
+
+def compute_junctions(connections):
+    """
+    v0.3.0 - Returns a set of (component_index, terminal) pairs where two
+    or more wires meet at the same terminal, so the UI can draw a
+    junction node there.
+    """
+    counts = {}
+    for start, start_t, end, end_t, _ in connections:
+        counts[(start, start_t)] = counts.get((start, start_t), 0) + 1
+        counts[(end, end_t)] = counts.get((end, end_t), 0) + 1
+    return {key for key, count in counts.items() if count >= 2}
