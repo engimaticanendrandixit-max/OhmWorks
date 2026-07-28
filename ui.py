@@ -34,5 +34,7 @@ def draw_status_bar(screen, font, current_mode, mouse_pos, width, height):
     bar_rect = pygame.Rect(0, height - 25, width, 25)
     pygame.draw.rect(screen, STATUS_BG, bar_rect)
     text = f"Mode: {current_mode.value}    X: {mouse_pos[0]}   Y: {mouse_pos[1]}"
+    if current_mode == Mode.MOVE:
+        text += "    (click a part, press R to rotate)"
     label = font.render(text, True, STATUS_TEXT)
     screen.blit(label, (10, height - 22))
