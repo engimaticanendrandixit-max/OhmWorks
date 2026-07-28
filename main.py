@@ -1,7 +1,10 @@
 import pygame
 import sys
 from components import *
-from utils import Mode, get_component_at, get_terminal_at, draw_grid
+from utils import (
+    Mode, get_component_at, get_terminal_at, draw_grid,
+    point_in_rect, build_wire_path, compute_junctions
+)
 from ui import draw_mode_buttons, get_clicked_mode, draw_status_bar
 
 
@@ -36,6 +39,7 @@ placed_components = []
 connections = []
 wire_start = None
 wire_terminal = None
+wire_points = []  # v0.3.0: manual bend points for the wire being drawn
 
 dragging = False
 drag_index = None
@@ -61,6 +65,7 @@ while running:
                 current_mode = clicked_mode
                 wire_start = None
                 wire_terminal = None
+                wire_points = []
                 continue
 
             # 2) Connect Mode - terminal-to-terminal wiring
@@ -71,10 +76,16 @@ while running:
                     if wire_start is None:
                         wire_start = i
                         wire_terminal = terminal
+                        wire_points = []
                     else:
-                        connections.append((wire_start, wire_terminal, i, terminal))
+                        connections.append((wire_start, wire_terminal, i, terminal, wire_points))
                         wire_start = None
                         wire_terminal = None
+                        wire_points = []
+                    continue
+                # Mid-wire click on empty canvas = manual bend point
+                elif wire_start is not None and point_in_rect((mouse_x, mouse_y), CANVAS_RECT):
+                    wire_points.append((mouse_x, mouse_y))
                     continue
 
             # 3) Move Mode - pick up a component to drag
@@ -95,19 +106,20 @@ while running:
                     # drop any wire touching the deleted part and shift the
                     # indices of everything that came after it
                     new_connections = []
-                    for start, start_t, end, end_t in connections:
+                    for start, start_t, end, end_t, points in connections:
                         if start == idx or end == idx:
                             continue
                         if start > idx:
                             start -= 1
                         if end > idx:
                             end -= 1
-                        new_connections.append((start, start_t, end, end_t))
+                        new_connections.append((start, start_t, end, end_t, points))
                     connections[:] = new_connections
 
                     if wire_start == idx:
                         wire_start = None
                         wire_terminal = None
+                        wire_points = []
                     continue
 
             # 5) Component palette selection / placement (any mode)
@@ -167,7 +179,7 @@ while running:
     pygame.draw.rect(screen, CANVAS, CANVAS_RECT)
     draw_grid(screen, CANVAS_RECT)
 
-    for start, start_terminal, end, end_terminal in connections:
+    for start, start_terminal, end, end_terminal, waypoints in connections:
         component1, x1, y1 = placed_components[start]
         component2, x2, y2 = placed_components[end]
         left1, right1 = get_terminals(component1, x1, y1)
@@ -182,14 +194,24 @@ while running:
             end_pos = left2
         else:
             end_pos = right2
-        pygame.draw.line(screen, (255, 255, 0), start_pos, end_pos, 3)
+
+        # v0.3.0: orthogonal auto-route, or the user's own bend points
+        path = build_wire_path(start_pos, end_pos, waypoints)
+        for p1, p2 in zip(path, path[1:]):
+            pygame.draw.line(screen, (255, 255, 0), p1, p2, 3)
 
     # Live preview of a wire being drawn in Connect Mode
     if current_mode == Mode.CONNECT and wire_start is not None:
         comp, cx, cy = placed_components[wire_start]
         left, right = get_terminals(comp, cx, cy)
         origin = left if wire_terminal == "left" else right
-        pygame.draw.line(screen, (255, 255, 0), origin, pygame.mouse.get_pos(), 1)
+        preview_path = [origin] + wire_points + [pygame.mouse.get_pos()]
+        for p1, p2 in zip(preview_path, preview_path[1:]):
+            pygame.draw.line(screen, (255, 255, 0), p1, p2, 1)
+        for point in wire_points:
+            pygame.draw.circle(screen, (255, 255, 0), point, 3)
+
+    junctions = compute_junctions(connections)  # v0.3.0: terminals shared by 2+ wires
 
     for i, (component, x, y) in enumerate(placed_components):
         if component == "Resistor":
@@ -206,6 +228,11 @@ while running:
         left_terminal, right_terminal = get_terminals(component, x, y)
         pygame.draw.circle(screen, (255, 0, 0), left_terminal, 6)
         pygame.draw.circle(screen, (0, 255, 0), right_terminal, 6)
+
+        if (i, "left") in junctions:
+            pygame.draw.circle(screen, (255, 255, 255), left_terminal, 4)
+        if (i, "right") in junctions:
+            pygame.draw.circle(screen, (255, 255, 255), right_terminal, 4)
 
         # Highlight the component currently being dragged (Move Mode)
         if current_mode == Mode.MOVE and i == drag_index:
